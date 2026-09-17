@@ -1,0 +1,6 @@
+{
+  "name": "ZentraGrid",
+  "description": "Developer storage infrastructure for modern applications. Upload, store, stream, and serve application files through a simple developer-first API.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
