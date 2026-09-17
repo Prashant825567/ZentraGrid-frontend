@@ -192,26 +192,19 @@ export const healthApi = {
   }
 };
 
-// DASHBOARD AUTH ROUTES (Uses Firebase ID Token)
+// DASHBOARD AUTH ROUTES (Uses Firebase ID Token / Bearer Token)
 export const authApi = {
   async googleLogin(idToken: string): Promise<GoogleAuthResponse> {
     if (API_BASE) {
-      try {
-        const res = await fetch(`${API_BASE}/v1/auth/google`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`
-          },
-          body: JSON.stringify({})
-        });
-        return await handleResponse<GoogleAuthResponse>(res);
-      } catch (e: any) {
-        if (e?.status === 403 && e?.code === 'PROFILE_INCOMPLETE') {
-          throw e;
-        }
-        console.warn('Google login route failed on backend, continuing with verified auth profile', e);
-      }
+      const res = await fetch(`${API_BASE}/v1/auth/google`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({})
+      });
+      return await handleResponse<GoogleAuthResponse>(res);
     }
     
     // Preview / simulated fallback:
@@ -228,16 +221,12 @@ export const authApi = {
 
   async getMe(idToken: string): Promise<OwnerProfile> {
     if (API_BASE) {
-      try {
-        const res = await fetch(`${API_BASE}/v1/auth/me`, {
-          headers: {
-            'Authorization': `Bearer ${idToken}`
-          }
-        });
-        return await handleResponse<OwnerProfile>(res);
-      } catch (e) {
-        console.warn('GET /v1/auth/me failed on backend, using fallback', e);
-      }
+      const res = await fetch(`${API_BASE}/v1/auth/me`, {
+        headers: {
+          'Authorization': `Bearer ${idToken}`
+        }
+      });
+      return await handleResponse<OwnerProfile>(res);
     }
     const state = getLocalState();
     return state.profile || {
@@ -251,19 +240,15 @@ export const authApi = {
 
   async updateMe(idToken: string, data: { name: string; company?: string }): Promise<OwnerProfile> {
     if (API_BASE) {
-      try {
-        const res = await fetch(`${API_BASE}/v1/auth/me`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`
-          },
-          body: JSON.stringify(data)
-        });
-        return await handleResponse<OwnerProfile>(res);
-      } catch (e) {
-        console.warn('PATCH /v1/auth/me failed on backend, saving locally', e);
-      }
+      const res = await fetch(`${API_BASE}/v1/auth/me`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify(data)
+      });
+      return await handleResponse<OwnerProfile>(res);
     }
     const state = getLocalState();
     const updated: OwnerProfile = {
