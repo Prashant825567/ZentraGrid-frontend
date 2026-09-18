@@ -2,13 +2,13 @@ import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, Auth } from 'firebase/auth';
 
 export const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyBVYRNNyBxtXfLCXFTUFB-XH1ggNl030u4",
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyBVYRNNyBxtfXlcXFTUFB-XH1ggNl030u4",
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "zentragrid.firebaseapp.com",
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "zentragrid",
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "zentragrid.firebasestorage.app",
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "873269002556",
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:873269002556:web:9f14acabe4403eb3001e39",
-  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID || ""
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID || "G-5TYYQRFRZ3"
 };
 
 export const isFirebaseConfigured = true;

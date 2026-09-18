@@ -7,7 +7,7 @@ import { useAuth } from '@/context/auth-context';
 import { HardDrive, ArrowRight, Shield, Layers, KeyRound, Zap, Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
-  const { signIn, loading, user, requiresProfileCompletion, owner } = useAuth();
+  const { signIn, signInWithSandbox, loading, user, requiresProfileCompletion, owner } = useAuth();
   const router = useRouter();
   const [signingIn, setSigningIn] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -35,6 +35,8 @@ export default function LoginPage() {
       setSigningIn(false);
     }
   };
+
+  const isInvalidKey = errorMsg?.toLowerCase().includes('api-key-not-valid') || errorMsg?.toLowerCase().includes('api_key_invalid');
 
   return (
     <div className="min-h-screen bg-[#06070B] text-slate-100 flex flex-col justify-between py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden selection:bg-[#FF4FD8]/30 selection:text-white">
@@ -73,8 +75,41 @@ export default function LoginPage() {
           </div>
 
           {errorMsg && (
-            <div className="mb-6 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs leading-relaxed">
-              <p>{errorMsg}</p>
+            <div className="mb-6 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs leading-relaxed space-y-3">
+              <div className="font-semibold text-rose-200 flex items-center gap-2">
+                <span>⚠️ Authentication Notice</span>
+              </div>
+              <p className="font-mono text-[11px] break-all text-rose-400 bg-black/40 p-2 rounded-lg border border-rose-500/20">
+                {errorMsg}
+              </p>
+
+              {isInvalidKey && (
+                <div className="pt-2 border-t border-rose-500/20 space-y-2 text-[11px] text-slate-300">
+                  <p className="font-medium text-white">Google Identity Toolkit ne yeh API key accept nahi ki. Iske 2 mukhya kaaran ho sakte hain:</p>
+                  <ol className="list-decimal pl-4 space-y-1 text-slate-300">
+                    <li>
+                      <strong>Authentication Start nahi hua:</strong> Firebase Console &rarr; <strong>Build &rarr; Authentication</strong> par jakar <strong>&quot;Get started&quot;</strong> par click karein aur Google Sign-in ko Enable karein.
+                    </li>
+                    <li>
+                      <strong>API Key Mismatch / Restriction:</strong> Firebase Project Settings &rarr; General tab mein <strong>Web API Key</strong> check karein ya Google Cloud Console mein key restrictions check karein.
+                    </li>
+                  </ol>
+
+                  <div className="pt-3">
+                    <button
+                      type="button"
+                      onClick={() => signInWithSandbox('Dev Founder', 'ZentraGrid Labs')}
+                      className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#FF4FD8] to-[#8B5CF6] text-black font-bold text-xs hover:opacity-90 transition-all flex items-center justify-center gap-2"
+                    >
+                      <Zap className="w-3.5 h-3.5 text-black" />
+                      <span>Test with Developer Preview Sandbox (Bypass)</span>
+                    </button>
+                    <p className="text-[10px] text-center text-slate-400 mt-1.5">
+                      (Aap bina Firebase API key fix kiye abhi dashboard inspect kar sakte hain)
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
