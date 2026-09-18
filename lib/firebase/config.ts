@@ -1,17 +1,8 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, Auth } from 'firebase/auth';
 
-const envApiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || '';
-
-export const isFirebaseConfigured = Boolean(
-  envApiKey && 
-  envApiKey.trim().length > 15 && 
-  !envApiKey.includes('AIzaSyBVYRNNyBxtXlcXFTUFB') &&
-  process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
-);
-
 export const firebaseConfig = {
-  apiKey: envApiKey,
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyBVYRNNyBxtXfLCXFTUFB-XH1ggNl030u4",
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "zentragrid.firebaseapp.com",
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "zentragrid",
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "zentragrid.firebasestorage.app",
@@ -20,15 +11,17 @@ export const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID || ""
 };
 
+export const isFirebaseConfigured = true;
+
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 
-if (typeof window !== 'undefined' && isFirebaseConfigured && firebaseConfig.apiKey) {
+if (typeof window !== 'undefined') {
   try {
     app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
     auth = getAuth(app);
   } catch (e) {
-    console.warn('Firebase initialization skipped or failed:', e);
+    console.warn('Firebase initialization error:', e);
   }
 }
 
