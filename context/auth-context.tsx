@@ -51,7 +51,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
   const [requiresProfileCompletion, setRequiresProfileCompletion] = useState<boolean>(false);
   const [projects, setProjects] = useState<any[]>([]);
-  const [currentProject, setCurrentProject] = useState<any | null>(null);
+  const [currentProject, setCurrentProjectState] = useState<any | null>(null);
+
+  const normalizeProject = useCallback((p: any) => {
+    if (!p) return null;
+    const id = p.project_id || p.id || '';
+    return {
+      ...p,
+      id,
+      project_id: id,
+      name: p.name || 'Default Workspace',
+      plan: p.plan || 'free',
+      storage_quota_bytes: p.quota_bytes || p.max_bytes || p.storage_quota_bytes || 10737418240,
+      storage_used_bytes: p.storage_bytes ?? p.total_bytes ?? p.storage_used_bytes ?? 0,
+      max_bytes: p.max_bytes || p.quota_bytes || 10737418240,
+      max_files: p.max_files || 10000,
+      file_count: p.file_count ?? p.total_files ?? 0,
+      created_at: p.created_at || new Date().toISOString()
+    };
+  }, []);
+
+  const setCurrentProject = useCallback((proj: any) => {
+    const norm = normalizeProject(proj);
+    setCurrentProjectState(norm);
+    if (norm?.id && typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('zg_active_project_id', norm.id);
+      } catch {}
+    }
+  }, [normalizeProject]);
 
   // Helper to retrieve fresh token from Firebase Web SDK or sandbox/custom token
   const getIdToken = useCallback(async (forceRefresh = false): Promise<string | null> => {
@@ -169,10 +197,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setRequiresProfileCompletion(false);
         try {
           const list = await api.projects.list(token);
-          const projs = list.projects || [];
+          const rawProjs = list.projects || [];
+          const projs = rawProjs.map(normalizeProject).filter(Boolean);
           setProjects(projs);
           if (projs.length > 0) {
-            setCurrentProject(projs[0]);
+            const savedId = typeof window !== 'undefined' ? localStorage.getItem('zg_active_project_id') : null;
+            const matched = projs.find((p: any) => p.id === savedId) || projs[0];
+            setCurrentProject(matched);
           }
         } catch (e) {
           console.warn('Projects auto-load on signin failed:', e);
@@ -184,7 +215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [normalizeProject, setCurrentProject]);
 
   // 1-Click Instant Sandbox Sign-In
   const signInWithSandbox = useCallback(async (name?: string, company?: string) => {
@@ -259,17 +290,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       try {
         const list = await executeWithAuth(async (token) => api.projects.list(token));
-        const projs = list.projects || [];
+        const rawProjs = list.projects || [];
+        const projs = rawProjs.map(normalizeProject).filter(Boolean);
         setProjects(projs);
         if (projs.length > 0) {
-          setCurrentProject(projs[0]);
+          const savedId = typeof window !== 'undefined' ? localStorage.getItem('zg_active_project_id') : null;
+          const matched = projs.find((p: any) => p.id === savedId) || projs[0];
+          setCurrentProject(matched);
         }
       } catch (e) {
         console.warn('Projects reload after profile update failed:', e);
       }
       return updated;
     },
-    [executeWithAuth]
+    [executeWithAuth, normalizeProject, setCurrentProject]
   );
 
   // Restore session automatically on page load
@@ -343,10 +377,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setRequiresProfileCompletion(false);
             try {
               const list = await api.projects.list(token);
-              const projs = list.projects || [];
+              const rawProjs = list.projects || [];
+              const projs = rawProjs.map(normalizeProject).filter(Boolean);
               setProjects(projs);
               if (projs.length > 0) {
-                setCurrentProject(projs[0]);
+                const savedId = typeof window !== 'undefined' ? localStorage.getItem('zg_active_project_id') : null;
+                const matched = projs.find((p: any) => p.id === savedId) || projs[0];
+                setCurrentProject(matched);
               }
             } catch (e) {
               console.warn('Projects auto-load on session restore failed:', e);
@@ -369,19 +406,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, [signOut]);
+  }, [signOut, normalizeProject, setCurrentProject]);
 
   const reloadProjects = useCallback(async () => {
     try {
       const list = await executeWithAuth(async (token) => api.projects.list(token));
-      setProjects(list.projects || []);
-      if (list.projects && list.projects.length > 0 && !currentProject) {
-        setCurrentProject(list.projects[0]);
+      const rawProjs = list.projects || [];
+      const projs = rawProjs.map(normalizeProject).filter(Boolean);
+      setProjects(projs);
+      if (projs.length > 0) {
+        const savedId = typeof window !== 'undefined' ? localStorage.getItem('zg_active_project_id') : null;
+        const matched = projs.find((p: any) => p.id === savedId) || projs[0];
+        setCurrentProject(matched);
       }
     } catch (e) {
       console.warn('Could not reload projects:', e);
     }
-  }, [executeWithAuth, currentProject]);
+  }, [executeWithAuth, normalizeProject, setCurrentProject]);
 
   return (
     <AuthContext.Provider

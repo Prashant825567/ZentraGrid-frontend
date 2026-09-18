@@ -21,11 +21,11 @@ import {
 } from 'lucide-react';
 
 export default function ApiKeysPage() {
-  const { currentProject } = useAuth();
+  const { currentProject, getIdToken } = useAuth();
   const { toast } = useToast();
 
   const [keys, setKeys] = useState<ZentraApiKey[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   // Key creation state
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -40,29 +40,41 @@ export default function ApiKeysPage() {
   const [revoking, setRevoking] = useState(false);
 
   useEffect(() => {
-    if (!currentProject) return;
+    const targetPid = currentProject?.project_id || currentProject?.id;
+    if (!targetPid) return;
     let isCancelled = false;
-    apiKeysApi.listKeys(currentProject.id)
-      .then((res) => {
+
+    (async () => {
+      setLoading(true);
+      try {
+        const token = await getIdToken();
+        const res = await apiKeysApi.listKeys(targetPid, token || '');
         if (!isCancelled) {
           setKeys(res.keys || []);
-          setLoading(false);
         }
-      })
-      .catch((err) => {
+      } catch (err) {
         if (!isCancelled) {
           console.warn('API keys fetch error', err);
+        }
+      } finally {
+        if (!isCancelled) {
           setLoading(false);
         }
-      });
+      }
+    })();
+
     return () => {
       isCancelled = true;
     };
-  }, [currentProject]);
+  }, [currentProject, getIdToken]);
 
   const handleCreateKey = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentProject) return;
+    const targetPid = currentProject?.project_id || currentProject?.id;
+    if (!targetPid) {
+      toast.error('Project Required', 'Please select or create a project first.');
+      return;
+    }
     if (!keyName.trim()) {
       toast.warning('Please provide a descriptive key name.');
       return;
@@ -70,20 +82,34 @@ export default function ApiKeysPage() {
 
     setCreating(true);
     try {
-      const res = await apiKeysApi.createKey(currentProject.id, keyName.trim());
-      setKeys((prev) => [res.key, ...prev]);
+      const token = await getIdToken();
+      const res = await apiKeysApi.createKey(targetPid, keyName.trim(), token || '');
+      const rawKey = res.key || res;
+      const plaintext = res.plaintext_key || (res as any).api_key || '';
+      const newKey: ZentraApiKey = {
+        id: rawKey.key_id || rawKey.id || `key_${Date.now()}`,
+        key_id: rawKey.key_id || rawKey.id || `key_${Date.now()}`,
+        name: rawKey.name || keyName.trim(),
+        key_hint: rawKey.key_hint || (plaintext ? plaintext.slice(-4) : '••••'),
+        project_id: rawKey.project_id || targetPid,
+        revoked: Boolean(rawKey.revoked),
+        last_used_at: rawKey.last_used_at,
+        created_at: rawKey.created_at || new Date().toISOString()
+      };
+      setKeys((prev) => [newKey, ...prev.filter(k => k.id !== newKey.id && k.key_id !== newKey.key_id)]);
       setCreateModalOpen(false);
       setKeyName('');
 
       // Open ONE-TIME plaintext reveal modal
       setRevealedKey({
-        name: res.key.name || keyName.trim(),
-        plaintext: res.plaintext_key,
-        keyHint: res.key.key_hint
+        name: newKey.name || keyName.trim() || 'API Key',
+        plaintext: plaintext,
+        keyHint: newKey.key_hint || (plaintext ? plaintext.slice(-4) : '••••')
       });
 
       toast.success('API Key Created', 'Store the plaintext key now. It will never be displayed again.');
     } catch (err: any) {
+      console.error('Create key error:', err);
       toast.error('Failed to create key', err?.message || 'Check your permissions.');
     } finally {
       setCreating(false);
@@ -91,11 +117,14 @@ export default function ApiKeysPage() {
   };
 
   const handleRevokeKey = async () => {
-    if (!currentProject || !revokeCandidate) return;
+    const targetPid = currentProject?.project_id || currentProject?.id;
+    if (!targetPid || !revokeCandidate) return;
     setRevoking(true);
     try {
-      await apiKeysApi.revokeKey(currentProject.id, revokeCandidate.id);
-      setKeys((prev) => prev.filter((k) => k.id !== revokeCandidate.id));
+      const token = await getIdToken();
+      const targetKeyId = revokeCandidate.key_id || revokeCandidate.id;
+      await apiKeysApi.revokeKey(targetPid, targetKeyId, token || '');
+      setKeys((prev) => prev.filter((k) => k.id !== targetKeyId && k.key_id !== targetKeyId));
       toast.info('API Key Revoked', `Key "${revokeCandidate.name || 'API Key'}" has been permanently deactivated.`);
       setRevokeCandidate(null);
     } catch (err: any) {

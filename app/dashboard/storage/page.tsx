@@ -30,7 +30,7 @@ export default function StoragePage() {
   const { toast } = useToast();
 
   const [files, setFiles] = useState<ZentraFile[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'video' | 'image' | 'document'>('all');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
@@ -48,21 +48,28 @@ export default function StoragePage() {
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    if (!currentProject) return;
+    const targetPid = currentProject?.project_id || currentProject?.id;
+    if (!targetPid) return;
     let isCancelled = false;
-    filesApi.listFiles(currentProject.id)
-      .then((res) => {
+
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await filesApi.listFiles(targetPid);
         if (!isCancelled) {
           setFiles(res.files || []);
-          setLoading(false);
         }
-      })
-      .catch((err) => {
+      } catch (err) {
         if (!isCancelled) {
           console.warn('Files fetch error', err);
+        }
+      } finally {
+        if (!isCancelled) {
           setLoading(false);
         }
-      });
+      }
+    })();
+
     return () => {
       isCancelled = true;
     };

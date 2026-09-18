@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/context/auth-context';
 import { useToast } from '@/context/toast-context';
 import { filesApi, projectsApi, usageApi } from '@/lib/api';
-import { ZentraFile } from '@/lib/types';
+import { ZentraFile, ProjectUsage } from '@/lib/types';
 import VideoPlayer from '@/components/ui/video-player';
 import { 
   HardDrive, 
@@ -27,31 +27,51 @@ import {
 } from 'lucide-react';
 
 export default function DashboardOverviewPage() {
-  const { currentProject, user } = useAuth();
+  const { currentProject, user, getIdToken } = useAuth();
   const { toast } = useToast();
 
   const [files, setFiles] = useState<ZentraFile[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
+  const [usage, setUsage] = useState<ProjectUsage | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [selectedVideo, setSelectedVideo] = useState<ZentraFile | null>(null);
 
-  // Load files
+  // Load files & telemetry
   useEffect(() => {
+    const targetPid = currentProject?.project_id || currentProject?.id;
+    if (!targetPid) return;
+    let isCancelled = false;
+
     async function loadData() {
-      if (!currentProject) return;
       setLoadingFiles(true);
       try {
-        const res = await filesApi.listFiles(currentProject.id);
-        setFiles(res.files || []);
+        const [filesRes, token] = await Promise.all([
+          filesApi.listFiles(targetPid),
+          getIdToken()
+        ]);
+        if (!isCancelled) {
+          setFiles(filesRes.files || []);
+        }
+        if (token) {
+          const usageRes = await usageApi.get(token, targetPid);
+          if (!isCancelled) {
+            setUsage(usageRes);
+          }
+        }
       } catch (e) {
-        console.warn('Files fetch warning', e);
+        console.warn('Dashboard data fetch warning:', e);
       } finally {
-        setLoadingFiles(false);
+        if (!isCancelled) {
+          setLoadingFiles(false);
+        }
       }
     }
     loadData();
-  }, [currentProject]);
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentProject, getIdToken]);
 
   // Quick file upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -89,10 +109,17 @@ export default function DashboardOverviewPage() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  // Quota calculation
-  const quotaBytes = currentProject?.storage_quota_bytes || 100 * 1024 * 1024 * 1024; // 100GB
-  const usedBytes = currentProject?.storage_used_bytes || 18.4 * 1024 * 1024 * 1024;
-  const quotaPercent = Math.min(100, Math.round((usedBytes / quotaBytes) * 100));
+  // Dynamic real metrics calculation
+  const usedBytes = usage?.total_bytes ?? currentProject?.storage_used_bytes ?? currentProject?.storage_bytes ?? 0;
+  const quotaBytes = usage?.quota_bytes ?? currentProject?.storage_quota_bytes ?? currentProject?.max_bytes ?? 10737418240; // 10 GB
+  const quotaPercent = quotaBytes > 0 ? Math.min(100, Math.round((usedBytes / quotaBytes) * 100)) : 0;
+
+  const bandwidthBytes = usage?.bandwidth_out_bytes ?? usage?.bandwidth_bytes ?? 0;
+  const bandwidthCapBytes = usage?.bandwidth_quota_bytes ?? 536870912000; // 500 GB cap
+  const bandwidthPercent = bandwidthCapBytes > 0 ? Math.min(100, ((bandwidthBytes / bandwidthCapBytes) * 100)).toFixed(1) : '0.0';
+
+  const totalRequests = usage?.api_requests ?? ((usage?.uploads || 0) + (usage?.downloads || 0) + (usage?.streams || 0));
+  const storedObjects = usage?.total_files ?? files.length;
 
   return (
     <div className="space-y-8 animate-fade-in max-w-7xl mx-auto">
@@ -182,11 +209,11 @@ export default function DashboardOverviewPage() {
             <Zap className="w-4 h-4 text-[#67E8F9]" />
           </div>
           <div className="text-2xl font-bold text-[#67E8F9] tracking-tight">
-            42.8 GB
+            {formatBytes(bandwidthBytes)}
           </div>
           <div className="text-[11px] text-slate-400 font-mono mt-4 flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-[#67E8F9]" />
-            <span>500 GB cap (8.5% used)</span>
+            <span>{formatBytes(bandwidthCapBytes)} cap ({bandwidthPercent}% used)</span>
           </div>
         </div>
 
@@ -197,11 +224,11 @@ export default function DashboardOverviewPage() {
             <Activity className="w-4 h-4 text-[#8B5CF6]" />
           </div>
           <div className="text-2xl font-bold text-white tracking-tight font-mono">
-            128,492
+            {totalRequests.toLocaleString()}
           </div>
           <div className="text-[11px] text-emerald-400 font-mono mt-4 flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            <span>99.98% successful (2xx)</span>
+            <span>{usage ? `${usage.uploads || 0} up • ${usage.downloads || 0} down • ${usage.streams || 0} stream` : '0 API operations logged'}</span>
           </div>
         </div>
 
@@ -212,10 +239,10 @@ export default function DashboardOverviewPage() {
             <HardDrive className="w-4 h-4 text-[#FF9BE8]" />
           </div>
           <div className="text-2xl font-bold text-white tracking-tight font-mono">
-            {files.length > 0 ? files.length : 14}
+            {storedObjects}
           </div>
           <div className="text-[11px] text-slate-400 font-mono mt-4 flex items-center justify-between">
-            <span>Primary Cluster</span>
+            <span>{storedObjects === 0 ? 'No objects stored' : `${storedObjects} active object${storedObjects > 1 ? 's' : ''}`}</span>
             <span className="text-slate-300">us-east-1</span>
           </div>
         </div>
