@@ -77,7 +77,7 @@ export default function ApiKeysPage() {
 
       // Open ONE-TIME plaintext reveal modal
       setRevealedKey({
-        name: res.key.name,
+        name: res.key.name || keyName.trim(),
         plaintext: res.plaintext_key,
         keyHint: res.key.key_hint
       });
@@ -96,7 +96,7 @@ export default function ApiKeysPage() {
     try {
       await apiKeysApi.revokeKey(currentProject.id, revokeCandidate.id);
       setKeys((prev) => prev.filter((k) => k.id !== revokeCandidate.id));
-      toast.info('API Key Revoked', `Key "${revokeCandidate.name}" has been permanently deactivated.`);
+      toast.info('API Key Revoked', `Key "${revokeCandidate.name || 'API Key'}" has been permanently deactivated.`);
       setRevokeCandidate(null);
     } catch (err: any) {
       toast.error('Revocation Failed', err?.message || 'Could not revoke key.');

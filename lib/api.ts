@@ -91,7 +91,7 @@ export class ApiError extends Error {
 
 const getApiBase = (): string => {
   const envUrl = process.env.NEXT_PUBLIC_API_BASE || process.env.NEXT_PUBLIC_API_BASE_URL;
-  if (envUrl && envUrl.trim().length > 0) {
+  if (envUrl && envUrl.trim().length > 0 && !envUrl.includes('api.zentragrid.com')) {
     return envUrl.replace(/\/+$/, '');
   }
   return 'https://zentragrid.onrender.com';

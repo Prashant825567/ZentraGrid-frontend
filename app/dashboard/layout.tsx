@@ -29,8 +29,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
+    } else if (!loading && user && requiresProfileCompletion) {
+      router.push('/complete-profile');
     }
-  }, [user, loading, router]);
+  }, [user, loading, requiresProfileCompletion, router]);
 
   if (loading) {
     return (

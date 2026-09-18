@@ -167,6 +167,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setRequiresProfileCompletion(true);
       } else {
         setRequiresProfileCompletion(false);
+        try {
+          const list = await api.projects.list(token);
+          const projs = list.projects || [];
+          setProjects(projs);
+          if (projs.length > 0) {
+            setCurrentProject(projs[0]);
+          }
+        } catch (e) {
+          console.warn('Projects auto-load on signin failed:', e);
+        }
       }
     } catch (err) {
       console.error('Sign in error:', err);
@@ -247,6 +257,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (updated.profile_completed && updated.name) {
         setRequiresProfileCompletion(false);
       }
+      try {
+        const list = await executeWithAuth(async (token) => api.projects.list(token));
+        const projs = list.projects || [];
+        setProjects(projs);
+        if (projs.length > 0) {
+          setCurrentProject(projs[0]);
+        }
+      } catch (e) {
+        console.warn('Projects reload after profile update failed:', e);
+      }
       return updated;
     },
     [executeWithAuth]
@@ -321,6 +341,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setRequiresProfileCompletion(true);
           } else {
             setRequiresProfileCompletion(false);
+            try {
+              const list = await api.projects.list(token);
+              const projs = list.projects || [];
+              setProjects(projs);
+              if (projs.length > 0) {
+                setCurrentProject(projs[0]);
+              }
+            } catch (e) {
+              console.warn('Projects auto-load on session restore failed:', e);
+            }
           }
         } catch (err) {
           console.warn('Failed to verify token on page load:', err);

@@ -9,127 +9,28 @@ import {
   FileListResponse, 
   ApiError 
 } from '@/lib/types';
+import { auth } from '@/lib/firebase';
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
-
-// Simulated local storage key for standalone preview fallback
-const MOCK_STORAGE_KEY = 'zentragrid_preview_state_v1';
-
-interface LocalState {
-  profile: OwnerProfile | null;
-  projects: Project[];
-  keys: Record<string, ApiKey[]>;
-  files: ZentraFile[];
+export function getApiBaseUrl(): string {
+  const env = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE;
+  if (env && env.trim().length > 0 && !env.includes('api.zentragrid.com')) {
+    return env.replace(/\/+$/, '');
+  }
+  return 'https://zentragrid.onrender.com';
 }
 
-function getLocalState(): LocalState {
-  if (typeof window === 'undefined') {
-    return { profile: null, projects: [], keys: {}, files: [] };
+export async function resolveIdToken(explicitToken?: string): Promise<string> {
+  if (explicitToken && explicitToken.trim().length > 0) {
+    return explicitToken;
   }
-  try {
-    const raw = localStorage.getItem(MOCK_STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch (e) {
-    console.warn('Could not parse mock state', e);
+  if (typeof window !== 'undefined' && auth?.currentUser) {
+    try {
+      return await auth.currentUser.getIdToken();
+    } catch (err) {
+      console.warn('Could not get current user ID token:', err);
+    }
   }
-
-  // Seed default realistic preview data
-  const defaultState: LocalState = {
-    profile: {
-      id: 'usr_demo_8829',
-      email: 'alex.chen@infra.dev',
-      name: 'Alex Chen',
-      company: 'Veloce Labs',
-      created_at: new Date(Date.now() - 30 * 86400000).toISOString(),
-    },
-    projects: [
-      {
-        id: 'prj_prod_aurora',
-        name: 'Production Aurora',
-        created_at: new Date(Date.now() - 25 * 86400000).toISOString(),
-        storage_bytes: 18432000000,
-        file_count: 12840,
-      },
-      {
-        id: 'prj_staging_v2',
-        name: 'Staging Cluster',
-        created_at: new Date(Date.now() - 10 * 86400000).toISOString(),
-        storage_bytes: 2450000000,
-        file_count: 820,
-      }
-    ],
-    keys: {
-      prj_prod_aurora: [
-        {
-          id: 'key_live_9a8f2',
-          name: 'Primary Ingest Gateway',
-          key_hint: 'ZTG_live_9a8f...4e1b',
-          project_id: 'prj_prod_aurora',
-          created_at: new Date(Date.now() - 24 * 86400000).toISOString(),
-          last_used_at: new Date().toISOString(),
-          revoked: false,
-        },
-        {
-          id: 'key_edge_3c4d',
-          name: 'Edge CDN Sync',
-          key_hint: 'ZTG_live_3c4d...990a',
-          project_id: 'prj_prod_aurora',
-          created_at: new Date(Date.now() - 15 * 86400000).toISOString(),
-          last_used_at: new Date(Date.now() - 3600000).toISOString(),
-          revoked: false,
-        }
-      ]
-    },
-    files: [
-      {
-        id: 'file_vid_9941',
-        name: 'h264_stream_sample_1080p.mp4',
-        size: 48293120,
-        mime_type: 'video/mp4',
-        status: 'active',
-        created_at: new Date(Date.now() - 2 * 86400000).toISOString(),
-        project_id: 'prj_prod_aurora',
-      },
-      {
-        id: 'file_asset_8812',
-        name: 'design_tokens_bundle.tar.gz',
-        size: 14280000,
-        mime_type: 'application/gzip',
-        status: 'active',
-        created_at: new Date(Date.now() - 4 * 86400000).toISOString(),
-        project_id: 'prj_prod_aurora',
-      },
-      {
-        id: 'file_img_3321',
-        name: 'hero_infra_render_4k.webp',
-        size: 3840210,
-        mime_type: 'image/webp',
-        status: 'active',
-        created_at: new Date(Date.now() - 6 * 86400000).toISOString(),
-        project_id: 'prj_prod_aurora',
-      },
-      {
-        id: 'file_telemetry_109',
-        name: 'system_metrics_export.parquet',
-        size: 89400000,
-        mime_type: 'application/octet-stream',
-        status: 'active',
-        created_at: new Date(Date.now() - 8 * 86400000).toISOString(),
-        project_id: 'prj_prod_aurora',
-      }
-    ]
-  };
-  saveLocalState(defaultState);
-  return defaultState;
-}
-
-function saveLocalState(state: LocalState) {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(state));
-  } catch (e) {
-    console.warn('Could not save mock state', e);
-  }
+  return '';
 }
 
 async function handleResponse<T>(res: Response): Promise<T> {
@@ -140,545 +41,325 @@ async function handleResponse<T>(res: Response): Promise<T> {
     } catch {
       errData = { message: res.statusText };
     }
+    const message = errData?.error?.message || errData?.message || `Request failed with status ${res.status}`;
+    const code = errData?.error?.code || errData?.code || `HTTP_${res.status}`;
     const error: ApiError = {
       status: res.status,
-      code: errData.code || `HTTP_${res.status}`,
-      message: errData.message || `Request failed with status ${res.status}`,
-      details: errData.details
+      code,
+      message,
+      details: errData?.error?.details || errData?.details
     };
     throw error;
+  }
+  if (res.status === 204) {
+    return undefined as unknown as T;
   }
   return res.json();
 }
 
-export const isLiveBackendAvailable = () => Boolean(API_BASE);
+export const isLiveBackendAvailable = () => true;
 
-// ROOT / HEALTH
+// ROOT & HEALTH
 export const healthApi = {
   async getInfo(): Promise<{ service: string; version: string; status: string }> {
-    if (API_BASE) {
-      try {
-        const res = await fetch(`${API_BASE}/`);
-        return await handleResponse(res);
-      } catch (e) {
-        console.warn('Real backend root check failed, using fallback info', e);
-      }
-    }
-    return { service: 'ZentraGrid Core Engine', version: '2.4.0', status: 'operational' };
+    const res = await fetch(`${getApiBaseUrl()}/`);
+    return await handleResponse(res);
   },
 
-  async getHealth(): Promise<{ status: string; uptime: number; timestamp: string }> {
-    if (API_BASE) {
-      try {
-        const res = await fetch(`${API_BASE}/health`);
-        return await handleResponse(res);
-      } catch (e) {
-        console.warn('Real health check failed, using fallback', e);
-      }
-    }
-    return { status: 'healthy', uptime: 489210, timestamp: new Date().toISOString() };
+  async getHealth(): Promise<{ status: string; service?: string; env?: string; storage_backend?: string; uptime: number; timestamp: string }> {
+    const res = await fetch(`${getApiBaseUrl()}/health`);
+    const data = await handleResponse<any>(res);
+    return {
+      status: data.status || 'ok',
+      service: data.service || 'ZentraGrid',
+      env: data.env || 'production',
+      storage_backend: data.storage_backend || 'telegram',
+      uptime: data.uptime ?? 489210,
+      timestamp: data.timestamp ?? new Date().toISOString()
+    };
   },
 
   async getReadiness(): Promise<{ ready: boolean; telegram: boolean; firebase: boolean }> {
-    if (API_BASE) {
-      try {
-        const res = await fetch(`${API_BASE}/health/ready`);
-        return await handleResponse(res);
-      } catch (e) {
-        console.warn('Real readiness check failed, using fallback', e);
-      }
-    }
-    return { ready: true, telegram: true, firebase: true };
+    const res = await fetch(`${getApiBaseUrl()}/health/ready`);
+    return await handleResponse(res);
   }
 };
 
 // DASHBOARD AUTH ROUTES (Uses Firebase ID Token / Bearer Token)
 export const authApi = {
+  /**
+   * POST /v1/auth/google
+   * Login aur signup dono. Backend checks email in OWNERS.
+   */
   async googleLogin(idToken: string): Promise<GoogleAuthResponse> {
-    if (API_BASE) {
-      const res = await fetch(`${API_BASE}/v1/auth/google`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`
-        },
-        body: JSON.stringify({})
-      });
-      return await handleResponse<GoogleAuthResponse>(res);
-    }
-    
-    // Preview / simulated fallback:
-    const state = getLocalState();
-    return {
-      owner: state.profile || {
-        id: 'usr_owner_' + Math.random().toString(36).substring(2, 8),
-        email: 'developer@example.com',
-        created_at: new Date().toISOString()
+    const token = await resolveIdToken(idToken);
+    const res = await fetch(`${getApiBaseUrl()}/v1/auth/google`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
       },
-      requires_profile_completion: !state.profile?.name
+      body: JSON.stringify({})
+    });
+
+    const data = await handleResponse<{
+      owner: any;
+      is_new_owner: boolean;
+      requires_profile_completion: boolean;
+    }>(res);
+
+    const owner: OwnerProfile = {
+      ...data.owner,
+      id: data.owner.owner_id || data.owner.id,
+      owner_id: data.owner.owner_id || data.owner.id,
+      name: data.owner.name ?? null,
+      company: data.owner.company ?? null,
+      avatar_url: data.owner.picture || undefined,
+      picture: data.owner.picture || null,
+      profile_completed: Boolean(data.owner.profile_completed),
+      requires_profile_completion: Boolean(data.requires_profile_completion),
+    };
+
+    return {
+      owner,
+      is_new_owner: Boolean(data.is_new_owner),
+      requires_profile_completion: Boolean(
+        data.requires_profile_completion ||
+        data.is_new_owner ||
+        !data.owner.profile_completed ||
+        !data.owner.name
+      )
     };
   },
 
-  async getMe(idToken: string): Promise<OwnerProfile> {
-    if (API_BASE) {
-      const res = await fetch(`${API_BASE}/v1/auth/me`, {
-        headers: {
-          'Authorization': `Bearer ${idToken}`
-        }
-      });
-      return await handleResponse<OwnerProfile>(res);
-    }
-    const state = getLocalState();
-    return state.profile || {
-      id: 'usr_local_owner',
-      email: 'developer@example.com',
-      name: 'Storage Architect',
-      company: 'Modern Cloud Systems',
-      created_at: new Date().toISOString()
+  /**
+   * GET /v1/auth/me
+   */
+  async getMe(idToken?: string): Promise<OwnerProfile> {
+    const token = await resolveIdToken(idToken);
+    const res = await fetch(`${getApiBaseUrl()}/v1/auth/me`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    const owner = await handleResponse<any>(res);
+    return {
+      ...owner,
+      id: owner.owner_id || owner.id,
+      owner_id: owner.owner_id || owner.id,
+      name: owner.name ?? null,
+      company: owner.company ?? null,
+      avatar_url: owner.picture || undefined,
+      picture: owner.picture || null,
+      profile_completed: Boolean(owner.profile_completed)
     };
   },
 
+  /**
+   * PATCH /v1/auth/me
+   * Completes profile and auto-provisions default project in backend
+   */
   async updateMe(idToken: string, data: { name: string; company?: string }): Promise<OwnerProfile> {
-    if (API_BASE) {
-      const res = await fetch(`${API_BASE}/v1/auth/me`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`
-        },
-        body: JSON.stringify(data)
-      });
-      return await handleResponse<OwnerProfile>(res);
-    }
-    const state = getLocalState();
-    const updated: OwnerProfile = {
-      ...(state.profile || { id: 'usr_owner_1', email: 'developer@example.com', created_at: new Date().toISOString() }),
-      name: data.name,
-      company: data.company,
-      requires_profile_completion: false,
-      updated_at: new Date().toISOString()
+    const token = await resolveIdToken(idToken);
+    const res = await fetch(`${getApiBaseUrl()}/v1/auth/me`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(data)
+    });
+    const owner = await handleResponse<any>(res);
+    return {
+      ...owner,
+      id: owner.owner_id || owner.id,
+      owner_id: owner.owner_id || owner.id,
+      name: owner.name ?? null,
+      company: owner.company ?? null,
+      avatar_url: owner.picture || undefined,
+      picture: owner.picture || null,
+      profile_completed: Boolean(owner.profile_completed)
     };
-    state.profile = updated;
-    saveLocalState(state);
-    return updated;
   }
 };
 
 // PROJECT ROUTES (Uses Firebase ID Token)
 export const projectsApi = {
-  async list(idToken: string): Promise<Project[]> {
-    if (API_BASE) {
-      try {
-        const res = await fetch(`${API_BASE}/v1/projects`, {
-          headers: { 'Authorization': `Bearer ${idToken}` }
-        });
-        return await handleResponse<Project[]>(res);
-      } catch (e) {
-        console.warn('GET /v1/projects failed, using local projects', e);
-      }
-    }
-    const state = getLocalState();
-    return state.projects;
-  },
-
-  async create(idToken: string, data: { name: string }): Promise<Project> {
-    if (API_BASE) {
-      try {
-        const res = await fetch(`${API_BASE}/v1/projects`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`
-          },
-          body: JSON.stringify(data)
-        });
-        return await handleResponse<Project>(res);
-      } catch (e) {
-        console.warn('POST /v1/projects failed, creating locally', e);
-      }
-    }
-    const state = getLocalState();
-    const newProj: Project = {
-      id: `prj_${data.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Math.random().toString(36).substring(2, 6)}`,
-      name: data.name,
-      created_at: new Date().toISOString(),
-      storage_bytes: 0,
-      file_count: 0
-    };
-    state.projects.unshift(newProj);
-    saveLocalState(state);
-    return newProj;
-  },
-
-  async createProject(name: string, idToken: string = ''): Promise<Project> {
-    return this.create(idToken, { name });
+  /**
+   * GET /v1/projects
+   */
+  async list(idToken?: string): Promise<Project[]> {
+    const token = await resolveIdToken(idToken);
+    const res = await fetch(`${getApiBaseUrl()}/v1/projects`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await handleResponse<any>(res);
+    const rawProjects = Array.isArray(data) ? data : (data.projects || []);
+    return rawProjects.map((p: any) => ({
+      id: p.project_id || p.id,
+      project_id: p.project_id || p.id,
+      owner_id: p.owner_id,
+      name: p.name,
+      description: p.description,
+      plan: p.plan || 'free',
+      max_bytes: p.max_bytes,
+      max_files: p.max_files,
+      storage_bytes: p.storage_bytes || 0,
+      file_count: p.file_count || 0,
+      created_at: p.created_at,
+      updated_at: p.updated_at
+    }));
   },
 
   async listProjects(idToken: string = ''): Promise<Project[]> {
     return this.list(idToken);
   },
 
-  async get(idToken: string, projectId: string): Promise<Project> {
-    if (API_BASE) {
-      try {
-        const res = await fetch(`${API_BASE}/v1/projects/${projectId}`, {
-          headers: { 'Authorization': `Bearer ${idToken}` }
-        });
-        return await handleResponse<Project>(res);
-      } catch (e) {
-        console.warn(`GET /v1/projects/${projectId} failed, using local`, e);
-      }
-    }
-    const state = getLocalState();
-    const found = state.projects.find(p => p.id === projectId);
-    if (!found) {
-      throw { status: 404, code: 'NOT_FOUND', message: `Project ${projectId} not found` } as ApiError;
-    }
-    return found;
+  /**
+   * POST /v1/projects
+   */
+  async create(idToken: string, data: { name: string; description?: string }): Promise<Project> {
+    const token = await resolveIdToken(idToken);
+    const res = await fetch(`${getApiBaseUrl()}/v1/projects`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(data)
+    });
+    const p = await handleResponse<any>(res);
+    return {
+      id: p.project_id || p.id,
+      project_id: p.project_id || p.id,
+      owner_id: p.owner_id,
+      name: p.name,
+      description: p.description,
+      plan: p.plan || 'free',
+      max_bytes: p.max_bytes,
+      max_files: p.max_files,
+      storage_bytes: 0,
+      file_count: 0,
+      created_at: p.created_at,
+      updated_at: p.updated_at
+    };
   },
 
+  async createProject(name: string, idToken: string = ''): Promise<Project> {
+    return this.create(idToken, { name });
+  },
+
+  /**
+   * GET /v1/projects/{projectId}
+   */
+  async get(idToken: string, projectId: string): Promise<Project> {
+    const token = await resolveIdToken(idToken);
+    const res = await fetch(`${getApiBaseUrl()}/v1/projects/${encodeURIComponent(projectId)}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const p = await handleResponse<any>(res);
+    return {
+      id: p.project_id || p.id,
+      project_id: p.project_id || p.id,
+      owner_id: p.owner_id,
+      name: p.name,
+      description: p.description,
+      plan: p.plan || 'free',
+      max_bytes: p.max_bytes,
+      max_files: p.max_files,
+      storage_bytes: p.storage_bytes || 0,
+      file_count: p.file_count || 0,
+      created_at: p.created_at,
+      updated_at: p.updated_at
+    };
+  },
+
+  /**
+   * DELETE /v1/projects/{projectId} (204)
+   */
   async delete(idToken: string, projectId: string): Promise<{ success: boolean }> {
-    if (API_BASE) {
-      try {
-        const res = await fetch(`${API_BASE}/v1/projects/${projectId}`, {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${idToken}` }
-        });
-        return await handleResponse<{ success: boolean }>(res);
-      } catch (e) {
-        console.warn(`DELETE /v1/projects/${projectId} failed, deleting locally`, e);
-      }
-    }
-    const state = getLocalState();
-    state.projects = state.projects.filter(p => p.id !== projectId);
-    delete state.keys[projectId];
-    saveLocalState(state);
+    const token = await resolveIdToken(idToken);
+    const res = await fetch(`${getApiBaseUrl()}/v1/projects/${encodeURIComponent(projectId)}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    await handleResponse<any>(res);
     return { success: true };
   }
 };
 
 // API KEY ROUTES (Uses Firebase ID Token)
 export const keysApi = {
+  /**
+   * GET /v1/projects/{projectId}/keys
+   */
   async list(idToken: string, projectId: string): Promise<ApiKey[]> {
-    if (API_BASE) {
-      try {
-        const res = await fetch(`${API_BASE}/v1/projects/${projectId}/keys`, {
-          headers: { 'Authorization': `Bearer ${idToken}` }
-        });
-        return await handleResponse<ApiKey[]>(res);
-      } catch (e) {
-        console.warn(`GET keys for ${projectId} failed, using local`, e);
-      }
-    }
-    const state = getLocalState();
-    return state.keys[projectId] || [];
+    const token = await resolveIdToken(idToken);
+    const res = await fetch(`${getApiBaseUrl()}/v1/projects/${encodeURIComponent(projectId)}/keys`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await handleResponse<any>(res);
+    const rawKeys = Array.isArray(data) ? data : (data.keys || []);
+    return rawKeys.map((k: any) => ({
+      id: k.key_id || k.id,
+      key_id: k.key_id || k.id,
+      name: k.name || 'API Key',
+      key_hint: k.key_hint,
+      project_id: k.project_id || projectId,
+      revoked: Boolean(k.revoked),
+      last_used_at: k.last_used_at,
+      created_at: k.created_at
+    }));
   },
 
+  /**
+   * POST /v1/projects/{projectId}/keys
+   * Returns plaintext api_key (shown only once!)
+   */
   async create(idToken: string, projectId: string, data: { name: string }): Promise<CreateApiKeyResponse> {
-    if (API_BASE) {
-      try {
-        const res = await fetch(`${API_BASE}/v1/projects/${projectId}/keys`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`
-          },
-          body: JSON.stringify(data)
-        });
-        return await handleResponse<CreateApiKeyResponse>(res);
-      } catch (e) {
-        console.warn(`POST key for ${projectId} failed, creating locally`, e);
-      }
-    }
-    const state = getLocalState();
-    const randomHex = Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-    const plaintext = `ZTG_live_${randomHex}`;
-    const hint = `ZTG_live_${randomHex.substring(0, 4)}...${randomHex.substring(randomHex.length - 4)}`;
-    
-    const newKey: ApiKey = {
-      id: `key_${Math.random().toString(36).substring(2, 9)}`,
-      name: data.name,
-      key_hint: hint,
-      project_id: projectId,
-      created_at: new Date().toISOString(),
-      revoked: false
+    const token = await resolveIdToken(idToken);
+    const res = await fetch(`${getApiBaseUrl()}/v1/projects/${encodeURIComponent(projectId)}/keys`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(data)
+    });
+    const dataRes = await handleResponse<any>(res);
+    const rawKey = dataRes.key || dataRes;
+    const mappedKey: ApiKey = {
+      id: rawKey.key_id || rawKey.id,
+      key_id: rawKey.key_id || rawKey.id,
+      name: rawKey.name || data.name,
+      key_hint: rawKey.key_hint,
+      project_id: rawKey.project_id || projectId,
+      revoked: Boolean(rawKey.revoked),
+      last_used_at: rawKey.last_used_at,
+      created_at: rawKey.created_at
     };
-
-    if (!state.keys[projectId]) {
-      state.keys[projectId] = [];
-    }
-    state.keys[projectId].unshift(newKey);
-    saveLocalState(state);
-
     return {
-      key: newKey,
-      plaintext_key: plaintext
+      key: mappedKey,
+      plaintext_key: dataRes.api_key,
+      api_key: dataRes.api_key
     };
   },
 
+  /**
+   * DELETE /v1/projects/{projectId}/keys/{keyId}
+   */
   async revoke(idToken: string, projectId: string, keyId: string): Promise<{ success: boolean }> {
-    if (API_BASE) {
-      try {
-        const res = await fetch(`${API_BASE}/v1/projects/${projectId}/keys/${keyId}`, {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${idToken}` }
-        });
-        return await handleResponse<{ success: boolean }>(res);
-      } catch (e) {
-        console.warn(`DELETE key ${keyId} failed, revoking locally`, e);
-      }
-    }
-    const state = getLocalState();
-    if (state.keys[projectId]) {
-      state.keys[projectId] = state.keys[projectId].map(k => 
-        k.id === keyId ? { ...k, revoked: true } : k
-      );
-      saveLocalState(state);
-    }
+    const token = await resolveIdToken(idToken);
+    const res = await fetch(`${getApiBaseUrl()}/v1/projects/${encodeURIComponent(projectId)}/keys/${encodeURIComponent(keyId)}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    await handleResponse<any>(res);
     return { success: true };
   }
 };
 
-// USAGE (Uses Firebase ID Token)
-export const usageApi = {
-  async get(idToken: string, projectId: string): Promise<ProjectUsage> {
-    if (API_BASE) {
-      try {
-        const res = await fetch(`${API_BASE}/v1/projects/${projectId}/usage`, {
-          headers: { 'Authorization': `Bearer ${idToken}` }
-        });
-        return await handleResponse<ProjectUsage>(res);
-      } catch (e) {
-        console.warn(`GET usage for ${projectId} failed, using simulated metrics`, e);
-      }
-    }
-    
-    // Realistic telemetry for the graphs
-    const days = 30;
-    const history = [];
-    const now = Date.now();
-    for (let i = days; i >= 0; i--) {
-      const d = new Date(now - i * 86400000);
-      const dateStr = d.toISOString().split('T')[0];
-      const variance = Math.sin(i * 0.4) * 0.2 + 1;
-      history.push({
-        date: dateStr,
-        bytes: Math.round(15000000000 + (30 - i) * 120000000 * variance),
-        requests: Math.round(3800 + Math.sin(i) * 1200 + (30 - i) * 150),
-        bandwidth: Math.round(1200000000 + Math.cos(i) * 400000000)
-      });
-    }
-
-    return {
-      project_id: projectId,
-      file_count: 12840,
-      total_bytes: 18432000000, // 18.4 GB
-      quota_bytes: 107374182400, // 100 GB
-      bandwidth_bytes: 42800000000, // 42.8 GB
-      bandwidth_quota_bytes: 536870912000, // 500 GB
-      api_requests: 128492,
-      api_requests_quota: 1000000,
-      usage_period: 'Current Billing Cycle',
-      storage_history: history
-    };
-  }
-};
-
-// DEVELOPER FILE API (Uses Developer Key: Authorization: Bearer ZTG_live_xxx)
-export const filesApi = {
-  async upload(
-    apiKey: string, 
-    file: File, 
-    onProgress?: (percent: number) => void
-  ): Promise<ZentraFile> {
-    if (API_BASE) {
-      return new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', `${API_BASE}/v1/files`);
-        xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
-
-        if (xhr.upload && onProgress) {
-          xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-              const pct = Math.round((event.loaded / event.total) * 100);
-              onProgress(pct);
-            }
-          };
-        }
-
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const res = JSON.parse(xhr.responseText);
-              resolve(res);
-            } catch {
-              reject({ status: xhr.status, code: 'PARSE_ERROR', message: 'Failed to parse upload response' });
-            }
-          } else {
-            reject({ status: xhr.status, code: `HTTP_${xhr.status}`, message: xhr.statusText || 'Upload failed' });
-          }
-        };
-
-        xhr.onerror = () => {
-          console.warn('Real upload failed, saving to local state');
-          this.mockUpload(file, onProgress).then(resolve).catch(reject);
-        };
-
-        const formData = new FormData();
-        formData.append('file', file);
-        xhr.send(formData);
-      });
-    }
-
-    return this.mockUpload(file, onProgress);
-  },
-
-  async mockUpload(file: File, onProgress?: (percent: number) => void): Promise<ZentraFile> {
-    // Smooth progress simulation
-    if (onProgress) {
-      for (let p = 15; p <= 100; p += 20) {
-        onProgress(p);
-        await new Promise(r => setTimeout(r, 60));
-      }
-    }
-    const state = getLocalState();
-    const newFile: ZentraFile = {
-      id: `file_${Math.random().toString(36).substring(2, 10)}`,
-      name: file.name,
-      size: file.size,
-      mime_type: file.type || 'application/octet-stream',
-      status: 'active',
-      created_at: new Date().toISOString()
-    };
-    state.files.unshift(newFile);
-    saveLocalState(state);
-    return newFile;
-  },
-
-  async list(apiKey: string, params?: { query?: string; sort?: string; page?: number; limit?: number }): Promise<FileListResponse> {
-    if (API_BASE) {
-      try {
-        const queryParams = new URLSearchParams();
-        if (params?.query) queryParams.set('query', params.query);
-        if (params?.sort) queryParams.set('sort', params.sort);
-        if (params?.page) queryParams.set('page', String(params.page));
-        if (params?.limit) queryParams.set('limit', String(params.limit));
-
-        const res = await fetch(`${API_BASE}/v1/files?${queryParams.toString()}`, {
-          headers: { 'Authorization': `Bearer ${apiKey}` }
-        });
-        return await handleResponse<FileListResponse>(res);
-      } catch (e) {
-        console.warn('GET /v1/files failed, using local files', e);
-      }
-    }
-
-    const state = getLocalState();
-    let files = [...state.files];
-    if (params?.query) {
-      const q = params.query.toLowerCase();
-      files = files.filter(f => f.name.toLowerCase().includes(q) || f.mime_type.toLowerCase().includes(q));
-    }
-    return {
-      files,
-      total: files.length,
-      page: params?.page || 1,
-      limit: params?.limit || 20
-    };
-  },
-
-  async get(apiKey: string, fileId: string): Promise<ZentraFile> {
-    if (API_BASE) {
-      try {
-        const res = await fetch(`${API_BASE}/v1/files/${fileId}`, {
-          headers: { 'Authorization': `Bearer ${apiKey}` }
-        });
-        return await handleResponse<ZentraFile>(res);
-      } catch (e) {
-        console.warn(`GET /v1/files/${fileId} failed, using local`, e);
-      }
-    }
-    const state = getLocalState();
-    const file = state.files.find(f => f.id === fileId);
-    if (!file) {
-      throw { status: 404, code: 'NOT_FOUND', message: `File ${fileId} not found` } as ApiError;
-    }
-    return file;
-  },
-
-  async rename(apiKey: string, fileId: string, name: string): Promise<ZentraFile> {
-    if (API_BASE) {
-      try {
-        const res = await fetch(`${API_BASE}/v1/files/${fileId}`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
-          },
-          body: JSON.stringify({ name })
-        });
-        return await handleResponse<ZentraFile>(res);
-      } catch (e) {
-        console.warn(`PATCH /v1/files/${fileId} failed, updating locally`, e);
-      }
-    }
-    const state = getLocalState();
-    const idx = state.files.findIndex(f => f.id === fileId);
-    if (idx === -1) {
-      throw { status: 404, code: 'NOT_FOUND', message: `File ${fileId} not found` } as ApiError;
-    }
-    state.files[idx] = { ...state.files[idx], name, updated_at: new Date().toISOString() };
-    saveLocalState(state);
-    return state.files[idx];
-  },
-
-  async delete(apiKey: string, fileId: string): Promise<{ success: boolean }> {
-    if (API_BASE) {
-      try {
-        const res = await fetch(`${API_BASE}/v1/files/${fileId}`, {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${apiKey}` }
-        });
-        return await handleResponse<{ success: boolean }>(res);
-      } catch (e) {
-        console.warn(`DELETE /v1/files/${fileId} failed, deleting locally`, e);
-      }
-    }
-    const state = getLocalState();
-    state.files = state.files.filter(f => f.id !== fileId);
-    saveLocalState(state);
-    return { success: true };
-  },
-
-  getDownloadUrl(fileId: string): string {
-    if (API_BASE) {
-      return `${API_BASE}/v1/files/${fileId}/download`;
-    }
-    return `#/download/${fileId}`;
-  },
-
-  getStreamUrl(fileId: string): string {
-    if (API_BASE) {
-      return `${API_BASE}/v1/files/${fileId}/stream`;
-    }
-    // High-performance test video for preview video player with seek support
-    return 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
-  },
-
-  async listFiles(projectId?: string, apiKey: string = 'ZTG_live_dashboard'): Promise<FileListResponse> {
-    return this.list(apiKey);
-  },
-
-  async uploadFile(file: File, apiKey: string = 'ZTG_live_dashboard', onProgress?: (percent: number) => void): Promise<ZentraFile> {
-    return this.upload(apiKey, file, onProgress);
-  },
-
-  async deleteFile(fileId: string, apiKey: string = 'ZTG_live_dashboard'): Promise<{ success: boolean }> {
-    return this.delete(apiKey, fileId);
-  }
-};
-
-// Aliases and convenience endpoints
+// Aliases for keys
 export const apiKeysApi = {
   listKeys: async (projectId: string, idToken: string = ''): Promise<{ keys: ApiKey[] }> => {
     const keys = await keysApi.list(idToken, projectId);
@@ -692,3 +373,157 @@ export const apiKeysApi = {
   }
 };
 
+// USAGE (Uses Firebase ID Token)
+export const usageApi = {
+  /**
+   * GET /v1/projects/{projectId}/usage
+   */
+  async get(idToken: string, projectId: string): Promise<ProjectUsage> {
+    const token = await resolveIdToken(idToken);
+    const res = await fetch(`${getApiBaseUrl()}/v1/projects/${encodeURIComponent(projectId)}/usage`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await handleResponse<any>(res);
+    return {
+      project_id: data.project_id || projectId,
+      total_files: data.total_files ?? 0,
+      file_count: data.total_files ?? 0,
+      total_bytes: data.total_bytes ?? 0,
+      quota_bytes: data.quota_bytes ?? 10737418240,
+      quota_files: data.quota_files ?? 10000,
+      uploads: data.uploads ?? 0,
+      downloads: data.downloads ?? 0,
+      streams: data.streams ?? 0,
+      bandwidth_bytes: data.bandwidth_out_bytes ?? 0,
+      bandwidth_out_bytes: data.bandwidth_out_bytes ?? 0,
+      bandwidth_quota_bytes: data.quota_bytes ?? 10737418240,
+      api_requests: data.api_requests ?? 0,
+      bytes_remaining: data.bytes_remaining,
+      files_remaining: data.files_remaining,
+      usage_period: 'Current Cycle',
+      updated_at: data.updated_at
+    };
+  }
+};
+
+// DEVELOPER FILE API (Uses Developer Key: Authorization: Bearer ZTG_live_xxx)
+export const filesApi = {
+  /**
+   * GET /v1/files
+   */
+  async list(apiKey: string, params?: { query?: string; limit?: number; cursor?: string }): Promise<FileListResponse> {
+    const url = new URL(`${getApiBaseUrl()}/v1/files`);
+    if (params?.query) url.searchParams.set('q', params.query);
+    if (params?.limit) url.searchParams.set('limit', params.limit.toString());
+    if (params?.cursor) url.searchParams.set('cursor', params.cursor);
+
+    const res = await fetch(url.toString(), {
+      headers: { 'Authorization': `Bearer ${apiKey}` }
+    });
+    const data = await handleResponse<any>(res);
+    const rawFiles = Array.isArray(data) ? data : (data.files || []);
+    return {
+      files: rawFiles.map((f: any) => ({
+        id: f.file_id || f.id,
+        name: f.name,
+        size: f.size_bytes || f.size || 0,
+        mime_type: f.mime_type || 'application/octet-stream',
+        status: f.status || 'active',
+        created_at: f.created_at,
+        download_url: f.download_url || `${getApiBaseUrl()}/v1/files/${f.file_id || f.id}/download`,
+        stream_url: f.stream_url || `${getApiBaseUrl()}/v1/files/${f.file_id || f.id}/stream`
+      })),
+      total: data.total || rawFiles.length,
+      next_cursor: data.next_cursor || null
+    };
+  },
+
+  async listFiles(projectIdOrApiKey: string): Promise<FileListResponse> {
+    // If passed a project ID or key, attempt fetch or return clean empty list
+    if (projectIdOrApiKey.startsWith('ZTG_live_')) {
+      return this.list(projectIdOrApiKey);
+    }
+    return { files: [], total: 0 };
+  },
+
+  /**
+   * POST /v1/files (multipart form upload)
+   */
+  async upload(apiKey: string, file: File, onProgress?: (percent: number) => void): Promise<ZentraFile> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${getApiBaseUrl()}/v1/files`);
+      xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
+
+      if (xhr.upload && onProgress) {
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const percent = Math.round((event.loaded / event.total) * 100);
+            onProgress(percent);
+          }
+        };
+      }
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const f = JSON.parse(xhr.responseText);
+            resolve({
+              id: f.file_id || f.id,
+              name: f.name,
+              size: f.size_bytes || f.size || file.size,
+              mime_type: f.mime_type || file.type || 'application/octet-stream',
+              status: 'active',
+              created_at: f.created_at || new Date().toISOString(),
+              download_url: `${getApiBaseUrl()}/v1/files/${f.file_id || f.id}/download`,
+              stream_url: `${getApiBaseUrl()}/v1/files/${f.file_id || f.id}/stream`
+            });
+          } catch {
+            reject(new Error('Invalid JSON response from server'));
+          }
+        } else {
+          try {
+            const err = JSON.parse(xhr.responseText);
+            reject(new Error(err.error?.message || err.message || `Upload failed with status ${xhr.status}`));
+          } catch {
+            reject(new Error(`Upload failed with status ${xhr.status}: ${xhr.statusText}`));
+          }
+        }
+      };
+
+      xhr.onerror = () => reject(new Error('Network error during file upload'));
+
+      const formData = new FormData();
+      formData.append('file', file);
+      xhr.send(formData);
+    });
+  },
+
+  async uploadFile(file: File, apiKey: string = 'ZTG_live_dashboard', onProgress?: (percent: number) => void): Promise<ZentraFile> {
+    return this.upload(apiKey, file, onProgress);
+  },
+
+  /**
+   * DELETE /v1/files/{fileId}
+   */
+  async delete(apiKey: string, fileId: string): Promise<{ success: boolean }> {
+    const res = await fetch(`${getApiBaseUrl()}/v1/files/${encodeURIComponent(fileId)}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${apiKey}` }
+    });
+    await handleResponse<any>(res);
+    return { success: true };
+  },
+
+  async deleteFile(fileId: string, apiKey: string = 'ZTG_live_dashboard'): Promise<{ success: boolean }> {
+    return this.delete(apiKey, fileId);
+  },
+
+  getDownloadUrl(fileId: string): string {
+    return `${getApiBaseUrl()}/v1/files/${encodeURIComponent(fileId)}/download`;
+  },
+
+  getStreamUrl(fileId: string): string {
+    return `${getApiBaseUrl()}/v1/files/${encodeURIComponent(fileId)}/stream`;
+  }
+};
